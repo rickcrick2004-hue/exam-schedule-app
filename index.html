@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>定期試験スケジュール管理アプリ</title>
+    <title>定期試験スケジュール管理アプリ ver 1.0</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM & Babel -->
@@ -40,7 +40,7 @@
             BookOpen, CheckSquare, Clock, Save, Trash2, BarChart2, Calendar, 
             Printer, User, Award, TrendingUp, Activity, Smile, Frown, Meh, 
             Edit3, List, Target, AlertCircle, FileText, PieChart, CheckCircle, 
-            Lightbulb, PlusCircle, ChevronDown, X 
+            Lightbulb, PlusCircle, ChevronDown, ChevronLeft, ChevronRight, X 
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Constants & Config ---
@@ -107,6 +107,9 @@
             const [reportMode, setReportMode] = useState('weekly');
             const [notification, setNotification] = useState(null);
             
+            // レポートの週オフセット（0:今週, 1:先週, ...）
+            const [weekOffset, setWeekOffset] = useState(0);
+
             // Basic User Info
             const [userInfo, setUserInfo] = useState({
                 class: '', number: '', name: '', examName: '',
@@ -302,7 +305,7 @@
                         <div>
                             <h1 className="text-xl font-bold flex items-center gap-2">
                                 <BookOpen className="w-6 h-6 text-sky-400" />
-                                定期試験スケジュール管理アプリ
+                                定期試験スケジュール管理アプリ ver 1.0
                             </h1>
                             <p className="text-xs text-slate-400">定期試験完全攻略</p>
                         </div>
@@ -558,7 +561,39 @@
                 const totalMinutesAll = getTotalTime();
                 const totalHoursAll = (totalMinutesAll / 60).toFixed(1);
                 const avgMinutesPerSubject = SUBJECTS.length > 0 ? Math.floor(totalMinutesAll / SUBJECTS.length) : 0;
-                const daysLeft = getDaysUntilExam();
+                
+                // Countdown / Status Logic
+                let statusCard = null;
+                if (userInfo.examStartDate) {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const start = new Date(userInfo.examStartDate);
+                    start.setHours(0, 0, 0, 0);
+                    const end = userInfo.examEndDate ? new Date(userInfo.examEndDate) : new Date(start);
+                    end.setHours(0, 0, 0, 0);
+
+                    let label = "試験開始まで";
+                    let content = "";
+
+                    if (today < start) {
+                        const diff = Math.ceil((start - today) / (1000 * 60 * 60 * 24));
+                        content = `あと ${diff} 日`;
+                    } else if (today <= end) {
+                        label = "FIGHT!";
+                        content = "試験中";
+                    } else {
+                        label = "お疲れ様でした";
+                        content = "試験終了";
+                    }
+
+                    statusCard = (
+                        <div className="text-center bg-white text-slate-900 p-4 rounded-xl shadow-lg border-b-4 border-orange-500 transform hover:scale-105 transition-transform">
+                            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">{label}</p>
+                            <p className="text-4xl font-extrabold text-orange-600 font-mono">{content}</p>
+                        </div>
+                    );
+                }
+
                 return (
                     <div className="max-w-5xl mx-auto space-y-6">
                         <div className="bg-gradient-to-r from-sky-600 to-indigo-700 rounded-2xl p-8 text-white shadow-lg flex flex-col md:flex-row justify-between items-center relative overflow-hidden">
@@ -570,7 +605,7 @@
                                 <p className="text-sky-100 text-lg opacity-90">{userInfo.examName ? `${userInfo.examName}に向けて頑張ろう！` : '目標を設定して学習を始めよう'}</p>
                             </div>
                             <div className="mt-6 md:mt-0 flex flex-col gap-4 z-10 w-full md:w-auto">
-                                {daysLeft !== null && <div className="text-center bg-white text-slate-900 p-4 rounded-xl shadow-lg border-b-4 border-orange-500 transform hover:scale-105 transition-transform"><p className="text-xs text-slate-500 font-bold uppercase tracking-wider">試験開始まで</p><p className="text-4xl font-extrabold text-orange-600 font-mono">{daysLeft > 0 ? `あと ${daysLeft} 日` : daysLeft === 0 ? '今日が試験！' : '試験終了'}</p></div>}
+                                {statusCard}
                                 <div className="text-right bg-black/20 p-4 rounded-xl backdrop-blur-sm border border-white/10"><p className="text-xs text-sky-200 uppercase tracking-wider">これまでの総勉強時間</p><p className="text-3xl font-bold font-mono text-white">{totalHoursAll}<span className="text-lg ml-1">時間</span></p></div>
                             </div>
                         </div>
@@ -603,8 +638,12 @@
 
             const renderReport = () => {
                 const dates = [];
+                const today = new Date();
+                const endDayOffset = weekOffset * 7;
                 for (let i = 6; i >= 0; i--) {
-                    const d = new Date(); d.setDate(d.getDate() - i); dates.push(d.toISOString().split('T')[0]);
+                    const d = new Date(); 
+                    d.setDate(today.getDate() - i - endDayOffset);
+                    dates.push(d.toISOString().split('T')[0]);
                 }
                 const print = () => window.print();
                 const totalTimeAll = getTotalTime();
@@ -644,7 +683,17 @@
                                     </button>
                                 ))}
                             </div>
-                            <button onClick={print} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700"><Printer className="w-4 h-4" /> PDF出力 / 印刷</button>
+                            
+                            <div className="flex gap-2">
+                                {reportMode === 'weekly' && (
+                                    <div className="flex items-center bg-white border border-slate-300 rounded-lg overflow-hidden">
+                                        <button onClick={() => setWeekOffset(prev => prev + 1)} className="p-2 hover:bg-slate-100 border-r border-slate-300" title="前の週"><ChevronLeft className="w-4 h-4" /></button>
+                                        <span className="px-3 text-sm font-bold whitespace-nowrap">{weekOffset === 0 ? '今週' : `${weekOffset}週前`}</span>
+                                        <button onClick={() => setWeekOffset(prev => Math.max(0, prev - 1))} className={`p-2 hover:bg-slate-100 border-l border-slate-300 ${weekOffset === 0 ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={weekOffset === 0} title="次の週"><ChevronRight className="w-4 h-4" /></button>
+                                    </div>
+                                )}
+                                <button onClick={print} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700"><Printer className="w-4 h-4" /> PDF出力 / 印刷</button>
+                            </div>
                         </div>
                         <div className="bg-white shadow-lg p-8 min-h-[297mm] w-full print:shadow-none print:w-full print:p-0">
                             <div className="border-b-2 border-slate-800 pb-4 mb-6 flex justify-between items-end">
