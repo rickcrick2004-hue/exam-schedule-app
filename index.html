@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>定期試験スケジュール管理アプリ</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM & Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* 印刷設定 */
+        @media print {
+            @page { margin: 10mm; size: A4; }
+            body { background: white; }
+            .print\:hidden { display: none !important; }
+            .print\:shadow-none { box-shadow: none !important; }
+            .print\:w-full { width: 100% !important; max-width: none !important; }
+            /* ページ分割の制御 */
+            .break-inside-avoid { break-inside: avoid; }
+        }
+        /* アニメーション */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans pb-20 md:pb-0">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import { 
+            BookOpen, CheckSquare, Clock, Save, Trash2, BarChart2, Calendar, 
+            Printer, User, Award, TrendingUp, Activity, Smile, Frown, Meh, 
+            Edit3, List, Target, AlertCircle, FileText, PieChart, CheckCircle, 
+            Lightbulb, PlusCircle, ChevronDown, X 
+        } from 'https://esm.sh/lucide-react@0.263.1';
+
+        // --- Constants & Config ---
+
+        const SUBJECTS = [
+            { id: 'jp', name: '国語', color: 'bg-pink-100 text-pink-700 border-pink-300' },
+            { id: 'math', name: '数学', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+            { id: 'eng', name: '英語', color: 'bg-orange-100 text-orange-700 border-orange-300' },
+            { id: 'sci', name: '理科', color: 'bg-green-100 text-green-700 border-green-300' },
+            { id: 'soc', name: '社会', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
+            { id: 'pe', name: '保体', color: 'bg-teal-100 text-teal-700 border-teal-300' },
+            { id: 'music', name: '音楽', color: 'bg-purple-100 text-purple-700 border-purple-300' },
+            { id: 'art', name: '美術', color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
+            { id: 'tech', name: '技術', color: 'bg-gray-100 text-gray-700 border-gray-300' },
+            { id: 'home', name: '家庭', color: 'bg-rose-100 text-rose-700 border-rose-300' },
+        ];
+
+        const TODO_PRESETS = [
+            '宿題プリント',
+            '朝学の勉強',
+            '章末テストの勉強',
+            '必修テキスト◯ページ～◯ページ（◯週目）',
+            'サポートブック◯ページ～◯ページ（◯週目）',
+            '教科書の新出漢字の書き取り',
+            '文法の勉強',
+            '朝学テストやり直し',
+            '章末テストやり直し',
+            'スパイラル解きなおし',
+            '徹底演習テキスト◯ページから◯ページ（◯週目）',
+            'Lesson◯の単語を書いて覚える',
+            'Lesson◯の本文を書いて覚える',
+            'Lesson◯の本文を音読して覚える',
+            '教科書を音読する',
+            '教科書を黙読する',
+            '教科書の重要語句にマーカーをつける',
+            'ウィニング◯ページ～◯ページ（◯週目）',
+            'ロイロの授業ノートを見る',
+            '理科アプリをする',
+            'ワークの内容を赤シートで覚える',
+            '教科書を赤シートで覚える',
+            'ノートにまとめる',
+            '先生に質問する'
+        ];
+
+        const EVALUATION_OPTIONS = {
+            effort: ['とても頑張った', '頑張った', 'まあまあ', 'あまり頑張れなかった', '全然頑張れなかった'],
+            confidence: ['とても自信がある', '自信がある', 'まあまあ', 'あまり自信がない', '全然自信がない'],
+            motivation: ['とても高い', '高い', '普通', '低い', 'とても低い'],
+        };
+
+        const CLASS_OPTIONS = [
+            '1年A組', '1年B組',
+            '2年A組', '2年B組',
+            '3年A組', '3年B組'
+        ];
+
+        // Generate score options 0-100
+        const SCORE_OPTIONS = [...Array(101)].map((_, i) => i);
+
+        // --- App Component ---
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [reportMode, setReportMode] = useState('weekly');
+            const [notification, setNotification] = useState(null);
+            
+            // Basic User Info
+            const [userInfo, setUserInfo] = useState({
+                class: '', number: '', name: '', examName: '',
+                examStartDate: '', examEndDate: '', examGoal: '',
+            });
+
+            // Subject Data
+            const [subjectData, setSubjectData] = useState({});
+            // Logs
+            const [logs, setLogs] = useState([]);
+            // Reflections
+            const [reflections, setReflections] = useState([]);
+
+            // Temporary State
+            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+            const [tempLog, setTempLog] = useState({
+                id: null, subjectId: '', content: '', minutes: 0,
+            });
+            const [tempReflection, setTempReflection] = useState({
+                effort: null, confidence: null, motivation: null, score: 50, comment: '',
+            });
+
+            // --- Effects ---
+            useEffect(() => {
+                const savedData = localStorage.getItem('studyMateData_v2'); 
+                if (savedData) {
+                    const parsed = JSON.parse(savedData);
+                    setUserInfo(parsed.userInfo || {});
+                    setSubjectData(parsed.subjectData || {});
+                    setLogs(parsed.logs || []);
+                    setReflections(parsed.reflections || []);
+                } else {
+                    // Initialize
+                    const initialSubjectData = {};
+                    SUBJECTS.forEach(sub => {
+                        initialSubjectData[sub.id] = {
+                            prevScore: '', targetScore: '', range: '', todos: [], specificGoal: ''
+                        };
+                    });
+                    setSubjectData(initialSubjectData);
+                }
+            }, []);
+
+            useEffect(() => {
+                const dataToSave = { userInfo, subjectData, logs, reflections };
+                localStorage.setItem('studyMateData_v2', JSON.stringify(dataToSave));
+            }, [userInfo, subjectData, logs, reflections]);
+
+            useEffect(() => {
+                const targetReflection = reflections.find(r => r.date === selectedDate);
+                if (targetReflection) {
+                    setTempReflection(targetReflection);
+                } else {
+                    setTempReflection({
+                        effort: null, confidence: null, motivation: null, score: 50, comment: '',
+                    });
+                }
+            }, [selectedDate, reflections]);
+
+            // --- Handlers ---
+            const handleUserInfoChange = (field, value) => {
+                setUserInfo(prev => ({ ...prev, [field]: value }));
+            };
+
+            const handleSubjectDataChange = (subId, field, value) => {
+                setSubjectData(prev => ({
+                    ...prev,
+                    [subId]: { ...prev[subId], [field]: value }
+                }));
+            };
+
+            const addTodo = (subId, text) => {
+                if (!text.trim()) return;
+                setSubjectData(prev => ({
+                    ...prev,
+                    [subId]: {
+                        ...prev[subId],
+                        todos: [...(prev[subId]?.todos || []), { id: Date.now(), text, completed: false }]
+                    }
+                }));
+            };
+
+            const toggleTodo = (subId, todoId) => {
+                setSubjectData(prev => ({
+                    ...prev,
+                    [subId]: {
+                        ...prev[subId],
+                        todos: prev[subId].todos.map(t => t.id === todoId ? { ...t, completed: !t.completed } : t)
+                    }
+                }));
+            };
+
+            const deleteTodo = (subId, todoId) => {
+                setSubjectData(prev => ({
+                    ...prev,
+                    [subId]: {
+                        ...prev[subId],
+                        todos: prev[subId].todos.filter(t => t.id !== todoId)
+                    }
+                }));
+            };
+
+            const setTodoInput = (subId, text) => {
+                const input = document.getElementById(`todo-input-${subId}`);
+                if (input) {
+                    input.value = text;
+                    input.focus();
+                }
+            };
+
+            const addLog = () => {
+                if (!tempLog.subjectId || tempLog.minutes === 0) {
+                    alert('科目と勉強時間を選択してください');
+                    return;
+                }
+                if (tempLog.id) {
+                    setLogs(prev => prev.map(l => l.id === tempLog.id ? { ...l, ...tempLog, date: selectedDate } : l));
+                } else {
+                    const newLog = {
+                        id: Date.now(),
+                        date: selectedDate,
+                        subjectId: tempLog.subjectId,
+                        content: tempLog.content,
+                        minutes: tempLog.minutes
+                    };
+                    setLogs(prev => [...prev, newLog]);
+                }
+                setTempLog({ id: null, subjectId: '', content: '', minutes: 0 });
+            };
+
+            const startEditLog = (log) => {
+                setTempLog({
+                    id: log.id, subjectId: log.subjectId, content: log.content, minutes: log.minutes
+                });
+            };
+
+            const cancelEditLog = () => {
+                setTempLog({ id: null, subjectId: '', content: '', minutes: 0 });
+            };
+
+            const deleteLog = (id) => {
+                if (window.confirm('この記録を削除しますか？')) {
+                    setLogs(prev => prev.filter(l => l.id !== id));
+                    if (tempLog.id === id) cancelEditLog();
+                }
+            };
+
+            const saveReflection = () => {
+                setNotification(null);
+                if (!tempReflection.effort) { setNotification({ type: 'error', message: '「頑張り度」を選択してください' }); return; }
+                if (!tempReflection.confidence) { setNotification({ type: 'error', message: '「目標点数を取る自信」を選択してください' }); return; }
+                if (!tempReflection.motivation) { setNotification({ type: 'error', message: '「モチベーション」を選択してください' }); return; }
+                if (!tempReflection.comment.trim()) { setNotification({ type: 'error', message: '「一言コメント」を入力してください' }); return; }
+
+                const newReflection = { date: selectedDate, ...tempReflection };
+                setReflections(prev => {
+                    const filtered = prev.filter(r => r.date !== selectedDate);
+                    return [...filtered, newReflection];
+                });
+                setNotification({ type: 'success', message: '保存しました！' });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            // --- Helper Functions ---
+            const getLogsForDate = (date) => logs.filter(l => l.date === date);
+            const getReflectionForDate = (date) => reflections.find(r => r.date === date);
+            const getTotalTime = (filterDate = null, filterSubjectId = null) => {
+                let filteredLogs = logs;
+                if (filterDate) filteredLogs = filteredLogs.filter(l => l.date === filterDate);
+                if (filterSubjectId) filteredLogs = filteredLogs.filter(l => l.subjectId === filterSubjectId);
+                return filteredLogs.reduce((acc, curr) => acc + curr.minutes, 0);
+            };
+            const formatTime = (minutes) => {
+                const h = Math.floor(minutes / 60);
+                const m = minutes % 60;
+                if (h > 0) return `${h}時間${m}分`;
+                return `${m}分`;
+            };
+            const getDaysUntilExam = () => {
+                if (!userInfo.examStartDate) return null;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const exam = new Date(userInfo.examStartDate);
+                exam.setHours(0, 0, 0, 0);
+                const diffTime = exam - today;
+                return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            };
+
+            // --- Renderers ---
+            const renderHeader = () => (
+                <div className="bg-slate-800 text-white p-4 shadow-md sticky top-0 z-50 print:hidden">
+                    <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div>
+                            <h1 className="text-xl font-bold flex items-center gap-2">
+                                <BookOpen className="w-6 h-6 text-sky-400" />
+                                定期試験スケジュール管理アプリ
+                            </h1>
+                            <p className="text-xs text-slate-400">定期試験完全攻略</p>
+                        </div>
+                        <div className="flex gap-2 text-sm overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+                            {[
+                                { id: 'dashboard', label: 'ホーム', icon: Activity },
+                                { id: 'record', label: '今日の記録', icon: Edit3 },
+                                { id: 'subjects', label: '科目・目標', icon: List },
+                                { id: 'report', label: '提出レポート', icon: Printer },
+                                { id: 'settings', label: '設定', icon: User },
+                            ].map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`flex items-center gap-1 px-3 py-2 rounded-lg whitespace-nowrap transition-colors ${
+                                        activeTab === tab.id ? 'bg-sky-600 text-white font-bold' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                    }`}
+                                >
+                                    <tab.icon className="w-4 h-4" /> {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderSettings = () => (
+                <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+                        <User className="w-5 h-5" /> 基本情報設定
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 mb-1">クラス</label>
+                            <select value={userInfo.class} onChange={(e) => handleUserInfoChange('class', e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none bg-white">
+                                <option value="">選択</option>
+                                {CLASS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 mb-1">番号</label>
+                            <select value={userInfo.number} onChange={(e) => handleUserInfoChange('number', e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none bg-white">
+                                <option value="">選択</option>
+                                {[...Array(40)].map((_, i) => <option key={i+1} value={`${i+1}番`}>{i+1}番</option>)}
+                            </select>
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-slate-600 mb-1">名前</label>
+                            <input type="text" value={userInfo.name} onChange={(e) => handleUserInfoChange('name', e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" placeholder="山田 太郎" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-slate-600 mb-1">今回の目標（モチベーション）</label>
+                            <input type="text" value={userInfo.examGoal} onChange={(e) => handleUserInfoChange('examGoal', e.target.value)} className="w-full p-3 border-2 border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none font-bold text-orange-800 placeholder-orange-300" placeholder="例：学年10番以内に入る！ / 5教科合計400点以上！" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-slate-600 mb-1">試験名</label>
+                            <input type="text" value={userInfo.examName} onChange={(e) => handleUserInfoChange('examName', e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" placeholder="3学期学年末試験" />
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="block text-sm font-medium text-slate-600 mb-1">試験開始日</label>
+                            <input type="date" value={userInfo.examStartDate} onChange={(e) => handleUserInfoChange('examStartDate', e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" />
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="block text-sm font-medium text-slate-600 mb-1">試験終了日</label>
+                            <input type="date" value={userInfo.examEndDate} onChange={(e) => handleUserInfoChange('examEndDate', e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" />
+                        </div>
+                    </div>
+                    <div className="mt-8 p-4 bg-yellow-50 rounded-lg border border-yellow-200 text-sm text-yellow-800">
+                        <p className="font-bold">⚠️ データについて</p>
+                        <p>入力したデータはこのブラウザに保存されます。履歴（キャッシュ）を削除するとデータが消える場合があります。</p>
+                    </div>
+                </div>
+            );
+
+            const renderSubjectSetup = () => (
+                <div className="max-w-4xl mx-auto space-y-6">
+                    <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <Target className="w-6 h-6 text-sky-500" /> 科目ごとの目標・範囲設定
+                    </h2>
+                    <div className="grid grid-cols-1 gap-4">
+                        {SUBJECTS.map(sub => (
+                            <div key={sub.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                                    <h3 className={`text-lg font-bold px-3 py-1 rounded-full ${sub.color}`}>{sub.name}</h3>
+                                    <div className="flex gap-4 text-sm items-center">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-slate-500 text-xs">前回:</span>
+                                            <select className="p-1 border rounded text-center font-bold text-sm" value={subjectData[sub.id]?.prevScore || ''} onChange={(e) => handleSubjectDataChange(sub.id, 'prevScore', e.target.value)}>
+                                                <option value="">-</option>
+                                                {SCORE_OPTIONS.map(score => <option key={score} value={score}>{score}</option>)}
+                                            </select>
+                                            <span className="text-slate-500 text-xs">点</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-slate-500 text-xs">目標:</span>
+                                            <select className="p-1 border-2 border-sky-200 rounded text-center font-bold text-sm text-sky-700" value={subjectData[sub.id]?.targetScore || ''} onChange={(e) => handleSubjectDataChange(sub.id, 'targetScore', e.target.value)}>
+                                                <option value="">-</option>
+                                                {SCORE_OPTIONS.map(score => <option key={score} value={score}>{score}</option>)}
+                                            </select>
+                                            <span className="text-slate-500 text-xs">点</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mb-4">
+                                    <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1">
+                                        <Lightbulb className="w-4 h-4 text-yellow-500" /> 前回の反省・今回の具体策
+                                    </label>
+                                    <textarea className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none resize-none h-20 bg-yellow-50/50" placeholder="例：計算ミスが多かったので見直しを徹底する..." value={subjectData[sub.id]?.specificGoal || ''} onChange={(e) => handleSubjectDataChange(sub.id, 'specificGoal', e.target.value)} />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-600 mb-2">試験範囲</label>
+                                        <textarea className="w-full h-32 p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none resize-none" placeholder="例：P.34〜P.56..." value={subjectData[sub.id]?.range || ''} onChange={(e) => handleSubjectDataChange(sub.id, 'range', e.target.value)} />
+                                    </div>
+                                    <div className="flex flex-col h-full">
+                                        <label className="block text-sm font-bold text-slate-600 mb-2">やることリスト</label>
+                                        <div className="mb-2">
+                                            <details className="group">
+                                                <summary className="list-none cursor-pointer text-xs font-bold text-sky-600 bg-sky-50 px-3 py-2 rounded-lg flex items-center justify-between border border-sky-100 hover:bg-sky-100 transition-colors">
+                                                    <span className="flex items-center gap-1"><PlusCircle className="w-4 h-4" /> 定型文から選ぶ</span>
+                                                    <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
+                                                </summary>
+                                                <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200 max-h-48 overflow-y-auto grid grid-cols-1 gap-1">
+                                                    <button onClick={() => setTodoInput(sub.id, '')} className="text-left px-2 py-2 text-xs text-slate-700 bg-white border border-slate-200 rounded hover:bg-sky-50 hover:text-sky-700 font-bold">自分で入力する</button>
+                                                    {TODO_PRESETS.map((preset, idx) => (
+                                                        <button key={idx} onClick={() => setTodoInput(sub.id, preset)} className="text-left px-2 py-2 text-xs text-slate-600 bg-white border border-slate-200 rounded hover:bg-sky-50 hover:text-sky-700">{preset}</button>
+                                                    ))}
+                                                </div>
+                                            </details>
+                                        </div>
+                                        <div className="flex gap-2 mb-2">
+                                            <input type="text" id={`todo-input-${sub.id}`} className="flex-1 p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none" placeholder="新しいタスク..." onKeyDown={(e) => { if(e.key === 'Enter') { addTodo(sub.id, e.target.value); e.target.value = ''; } }} />
+                                            <button onClick={() => { const input = document.getElementById(`todo-input-${sub.id}`); addTodo(sub.id, input.value); input.value = ''; }} className="bg-sky-500 text-white px-3 rounded-lg text-sm font-bold shadow hover:bg-sky-600 transition-colors">追加</button>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto max-h-40 bg-slate-50 rounded-lg p-2 space-y-1">
+                                            {subjectData[sub.id]?.todos?.map(todo => (
+                                                <div key={todo.id} className="flex items-center gap-2 bg-white p-2 rounded shadow-sm">
+                                                    <button onClick={() => toggleTodo(sub.id, todo.id)} className={`w-5 h-5 flex items-center justify-center rounded border ${todo.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300'}`}>
+                                                        {todo.completed && <CheckSquare className="w-4 h-4" />}
+                                                    </button>
+                                                    <span className={`flex-1 text-sm ${todo.completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{todo.text}</span>
+                                                    <button onClick={() => deleteTodo(sub.id, todo.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            ))}
+                                            {(!subjectData[sub.id]?.todos || subjectData[sub.id]?.todos.length === 0) && <p className="text-xs text-slate-400 text-center py-4">タスクがありません</p>}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+
+            const renderDailyLog = () => {
+                const todayLogs = getLogsForDate(selectedDate);
+                const isEditing = tempLog.id !== null;
+                return (
+                    <div className="max-w-5xl mx-auto flex flex-col gap-6">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                            <h2 className="font-bold text-slate-700 flex items-center gap-2"><Calendar className="w-5 h-5 text-sky-500" /> 日付選択</h2>
+                            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="p-2 border border-slate-300 rounded-lg font-bold text-slate-700" />
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">1. 教科を選ぶ</h3>
+                            <div className="grid grid-cols-5 gap-2 sm:gap-3">
+                                {SUBJECTS.map(sub => (
+                                    <button key={sub.id} onClick={() => setTempLog(prev => ({ ...prev, subjectId: sub.id }))} className={`p-2 sm:p-4 rounded-xl text-sm sm:text-base font-bold transition-all transform active:scale-95 flex flex-col items-center gap-1 ${tempLog.subjectId === sub.id ? `${sub.color} ring-2 ring-offset-2 ring-sky-500 shadow-lg scale-105` : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
+                                        {sub.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">2. 時間を選ぶ（分）</h3>
+                            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-4">
+                                {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120].map(min => (
+                                    <button key={min} onClick={() => setTempLog(prev => ({ ...prev, minutes: min }))} className={`py-3 rounded-lg font-bold text-sm transition-all ${tempLog.minutes === min ? 'bg-sky-500 text-white shadow-md scale-105' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
+                                        {min}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        {tempLog.subjectId && tempLog.minutes > 0 && (
+                            <div className={`bg-white p-6 rounded-xl shadow-sm border animate-fadeIn ${isEditing ? 'border-orange-300 ring-2 ring-orange-200' : 'border-slate-200'}`}>
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{isEditing ? '3. 内容を編集' : '3. 内容を入力'}</h3>
+                                    {isEditing && <button onClick={cancelEditLog} className="text-xs flex items-center gap-1 text-slate-500 hover:text-slate-700 bg-slate-100 px-2 py-1 rounded"><X className="w-3 h-3" /> キャンセル</button>}
+                                </div>
+                                {subjectData[tempLog.subjectId]?.todos?.length > 0 && (
+                                    <div className="mb-4">
+                                        <p className="text-xs font-bold text-slate-400 mb-2">やることリストから引用:</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {subjectData[tempLog.subjectId].todos.map(todo => (
+                                                <button key={todo.id} onClick={() => setTempLog(prev => ({ ...prev, content: (prev.content ? prev.content + ' ' : '') + todo.text }))} className="px-3 py-1 bg-sky-50 text-sky-700 rounded-full text-xs font-bold hover:bg-sky-100 border border-sky-100 transition-colors">+ {todo.text}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                <textarea value={tempLog.content} onChange={(e) => setTempLog(prev => ({ ...prev, content: e.target.value }))} placeholder="学習内容を入力してください" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-slate-700 mb-4" rows="3" />
+                                <button onClick={addLog} className={`w-full py-4 text-white rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-95 ${isEditing ? 'bg-gradient-to-r from-orange-500 to-red-500' : 'bg-gradient-to-r from-sky-500 to-blue-600'}`}>
+                                    <Save className="w-5 h-5" /> {isEditing ? '変更を保存' : '記録を保存'}
+                                </button>
+                            </div>
+                        )}
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center justify-between">
+                                <span>{new Date(selectedDate).toLocaleDateString()} の記録</span>
+                                <span className="text-sm font-normal bg-sky-100 text-sky-800 px-3 py-1 rounded-full">合計: {formatTime(getTotalTime(selectedDate))}</span>
+                            </h3>
+                            {todayLogs.length === 0 ? <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">まだ記録がありません</div> : (
+                                <div className="space-y-3">
+                                    {todayLogs.map(log => {
+                                        const subject = SUBJECTS.find(s => s.id === log.subjectId);
+                                        const isThisLogEditing = tempLog.id === log.id;
+                                        return (
+                                            <div key={log.id} className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${isThisLogEditing ? 'bg-orange-50 border-orange-300' : 'bg-slate-50 border-slate-200 hover:bg-white'}`}>
+                                                <span className={`px-2 py-1 rounded text-xs font-bold w-12 text-center ${subject?.color.replace('bg-', 'bg-opacity-20 ')}`}>{subject?.name}</span>
+                                                <div className="flex-1"><p className="text-sm text-slate-800">{log.content}</p></div>
+                                                <span className="text-sm font-bold text-slate-600 whitespace-nowrap">{log.minutes}分</span>
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => startEditLog(log)} className={`p-2 rounded ${isThisLogEditing ? 'text-orange-600' : 'text-slate-400 hover:text-sky-500'}`}><Edit3 className="w-4 h-4" /></button>
+                                                    <button onClick={() => deleteLog(log.id)} className="p-2 text-slate-400 hover:text-red-500 rounded"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><Award className="w-5 h-5 text-orange-500" /> 1日の振り返り</h3>
+                            <p className="text-xs text-slate-500 mb-4">※ すべての項目を入力すると保存できます。</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div><label className="block text-sm font-bold text-slate-600 mb-2">頑張り度 <span className="text-red-500">*</span></label><div className="flex flex-col gap-1">{EVALUATION_OPTIONS.effort.map(opt => <button key={opt} onClick={() => setTempReflection(prev => ({ ...prev, effort: opt }))} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${tempReflection.effort === opt ? 'bg-sky-100 text-sky-800 font-bold border border-sky-300' : 'hover:bg-slate-50 text-slate-600 border border-transparent'}`}>{tempReflection.effort === opt && '● '} {opt}</button>)}</div></div>
+                                <div><label className="block text-sm font-bold text-slate-600 mb-2">目標点数を取る自信 <span className="text-red-500">*</span></label><div className="flex flex-col gap-1">{EVALUATION_OPTIONS.confidence.map(opt => <button key={opt} onClick={() => setTempReflection(prev => ({ ...prev, confidence: opt }))} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${tempReflection.confidence === opt ? 'bg-orange-100 text-orange-800 font-bold border border-orange-300' : 'hover:bg-slate-50 text-slate-600 border border-transparent'}`}>{tempReflection.confidence === opt && '● '} {opt}</button>)}</div></div>
+                                <div><label className="block text-sm font-bold text-slate-600 mb-2">モチベーション <span className="text-red-500">*</span></label><div className="flex flex-col gap-1">{EVALUATION_OPTIONS.motivation.map((level) => <button key={level} onClick={() => setTempReflection(prev => ({ ...prev, motivation: level }))} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${tempReflection.motivation === level ? 'bg-pink-100 text-pink-800 font-bold border border-pink-300' : 'hover:bg-slate-50 text-slate-600 border border-transparent'}`}>{tempReflection.motivation === level && '● '} {level}</button>)}</div></div>
+                            </div>
+                            <div className="mt-6 space-y-6">
+                                <div><label className="block text-sm font-bold text-slate-600 mb-2">自己評価: <span className="text-xl text-sky-600">{tempReflection.score}</span>点</label><input type="range" min="0" max="100" value={tempReflection.score} onChange={(e) => setTempReflection(prev => ({ ...prev, score: parseInt(e.target.value) }))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500" /></div>
+                                <div><label className="block text-sm font-bold text-slate-600 mb-2">一言コメント <span className="text-red-500">*</span></label><textarea value={tempReflection.comment} onChange={(e) => setTempReflection(prev => ({ ...prev, comment: e.target.value }))} className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none h-24 resize-none" placeholder="今日はここを頑張った、明日はここをやる..." /></div>
+                                <div className="space-y-2">
+                                    <button onClick={saveReflection} className="w-full py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg font-bold shadow hover:from-orange-600 hover:to-red-600 transition-colors text-lg">振り返りを保存</button>
+                                    {notification && <div className={`p-3 rounded-lg text-center font-bold animate-fadeIn ${notification.type === 'error' ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-green-100 text-green-700 border border-green-300'}`}>{notification.type === 'error' && <AlertCircle className="w-4 h-4 inline mr-1" />}{notification.type === 'success' && <CheckCircle className="w-4 h-4 inline mr-1" />}{notification.message}</div>}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderDashboard = () => {
+                const totalMinutesAll = getTotalTime();
+                const totalHoursAll = (totalMinutesAll / 60).toFixed(1);
+                const avgMinutesPerSubject = SUBJECTS.length > 0 ? Math.floor(totalMinutesAll / SUBJECTS.length) : 0;
+                const daysLeft = getDaysUntilExam();
+                return (
+                    <div className="max-w-5xl mx-auto space-y-6">
+                        <div className="bg-gradient-to-r from-sky-600 to-indigo-700 rounded-2xl p-8 text-white shadow-lg flex flex-col md:flex-row justify-between items-center relative overflow-hidden">
+                            <div className="absolute -top-10 -right-10 w-40 h-40 bg-white opacity-10 rounded-full blur-2xl"></div>
+                            <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-sky-400 opacity-20 rounded-full blur-2xl"></div>
+                            <div className="z-10 flex-1">
+                                <h2 className="text-3xl font-bold mb-2">こんにちは、{userInfo.name || 'ゲスト'}さん</h2>
+                                {userInfo.examGoal && <div className="inline-block bg-white/20 px-4 py-2 rounded-lg backdrop-blur-sm mt-2 mb-4"><p className="text-orange-100 text-sm font-bold flex items-center gap-2"><Target className="w-4 h-4" /> 今回の目標</p><p className="text-xl font-bold text-white mt-1">{userInfo.examGoal}</p></div>}
+                                <p className="text-sky-100 text-lg opacity-90">{userInfo.examName ? `${userInfo.examName}に向けて頑張ろう！` : '目標を設定して学習を始めよう'}</p>
+                            </div>
+                            <div className="mt-6 md:mt-0 flex flex-col gap-4 z-10 w-full md:w-auto">
+                                {daysLeft !== null && <div className="text-center bg-white text-slate-900 p-4 rounded-xl shadow-lg border-b-4 border-orange-500 transform hover:scale-105 transition-transform"><p className="text-xs text-slate-500 font-bold uppercase tracking-wider">試験開始まで</p><p className="text-4xl font-extrabold text-orange-600 font-mono">{daysLeft > 0 ? `あと ${daysLeft} 日` : daysLeft === 0 ? '今日が試験！' : '試験終了'}</p></div>}
+                                <div className="text-right bg-black/20 p-4 rounded-xl backdrop-blur-sm border border-white/10"><p className="text-xs text-sky-200 uppercase tracking-wider">これまでの総勉強時間</p><p className="text-3xl font-bold font-mono text-white">{totalHoursAll}<span className="text-lg ml-1">時間</span></p></div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200"><h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">全教科平均</h3><p className="text-2xl font-bold text-slate-800">{formatTime(avgMinutesPerSubject)}</p></div>
+                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200"><h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">試験期間</h3><p className="text-lg font-bold text-slate-800">{userInfo.examStartDate ? new Date(userInfo.examStartDate).toLocaleDateString() : '未設定'} <span className="text-slate-400 mx-2">~</span> {userInfo.examEndDate ? new Date(userInfo.examEndDate).toLocaleDateString() : '未設定'}</p></div>
+                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200"><h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">直近の自己評価</h3><p className="text-2xl font-bold text-orange-500">{reflections.length > 0 ? reflections[reflections.length - 1].score : '-'} <span className="text-sm text-slate-400 ml-1">点</span></p></div>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><BarChart2 className="w-5 h-5 text-sky-500" /> 教科別学習状況</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {SUBJECTS.map(sub => {
+                                    const subTotal = getTotalTime(null, sub.id);
+                                    const percent = totalMinutesAll > 0 ? (subTotal / totalMinutesAll) * 100 : 0;
+                                    return (
+                                        <div key={sub.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold text-sm ${sub.color}`}>{sub.name}</div>
+                                            <div className="flex-1">
+                                                <div className="flex justify-between text-sm mb-1"><span className="font-bold text-slate-700">{formatTime(subTotal)}</span><span className="text-slate-400">{percent.toFixed(0)}%</span></div>
+                                                <div className="w-full bg-slate-200 rounded-full h-2"><div className={`h-2 rounded-full ${sub.color.replace('text-', 'bg-').split(' ')[0]}`} style={{ width: `${percent}%` }}></div></div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderReport = () => {
+                const dates = [];
+                for (let i = 6; i >= 0; i--) {
+                    const d = new Date(); d.setDate(d.getDate() - i); dates.push(d.toISOString().split('T')[0]);
+                }
+                const print = () => window.print();
+                const totalTimeAll = getTotalTime();
+                const uniqueDatesWithLogs = new Set(logs.map(l => l.date)).size;
+                const dailyAverage = uniqueDatesWithLogs > 0 ? Math.floor(totalTimeAll / uniqueDatesWithLogs) : 0;
+
+                const renderScoreSummary = () => (
+                    <div className="mb-6 bg-white border border-slate-300 rounded-lg overflow-hidden break-inside-avoid">
+                        <div className="bg-slate-50 p-3 border-b border-slate-300 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-700 flex items-center gap-2"><Target className="w-4 h-4 text-sky-500" /> 目標点数</h3>
+                            <span className="text-xs text-slate-500 font-bold">大：今回の目標 / ( )：前回の点数</span>
+                        </div>
+                        {userInfo.examGoal && <div className="p-3 border-b border-slate-300 bg-orange-50 text-orange-800 font-bold text-center">"{userInfo.examGoal}"</div>}
+                        <div className="grid grid-cols-5 sm:grid-cols-10 divide-x divide-y sm:divide-y-0 divide-slate-300">
+                            {SUBJECTS.map(sub => (
+                                <div key={sub.id} className="p-2 text-center flex flex-col justify-center h-full">
+                                    <div className="text-xs font-bold text-slate-700 mb-1 bg-slate-100 rounded px-1 py-0.5 inline-block mx-auto">{sub.name}</div>
+                                    <div className="flex flex-col items-center justify-center min-h-[3rem]">
+                                        <span className="text-2xl font-bold text-slate-800 leading-none mb-1">{subjectData[sub.id]?.targetScore || '-'}</span>
+                                        <span className="text-xs text-slate-500 font-medium">({subjectData[sub.id]?.prevScore || '-'})</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+
+                return (
+                    <div className="max-w-5xl mx-auto">
+                        <div className="mb-4 flex flex-wrap gap-2 justify-between items-center print:hidden">
+                            <div className="flex bg-slate-200 rounded-lg p-1 gap-1 flex-wrap">
+                                {['weekly', 'summary', 'scope'].map(mode => (
+                                    <button key={mode} onClick={() => setReportMode(mode)} className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs sm:text-sm font-bold transition-all ${reportMode === mode ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        {mode === 'weekly' && <><Calendar className="w-4 h-4" /> 週間レポート (様式1)</>}
+                                        {mode === 'summary' && <><PieChart className="w-4 h-4" /> 全体分析 (様式2)</>}
+                                        {mode === 'scope' && <><List className="w-4 h-4" /> 試験範囲・To-Do (様式3)</>}
+                                    </button>
+                                ))}
+                            </div>
+                            <button onClick={print} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700"><Printer className="w-4 h-4" /> PDF出力 / 印刷</button>
+                        </div>
+                        <div className="bg-white shadow-lg p-8 min-h-[297mm] w-full print:shadow-none print:w-full print:p-0">
+                            <div className="border-b-2 border-slate-800 pb-4 mb-6 flex justify-between items-end">
+                                <div>
+                                    <h1 className="text-2xl font-bold text-slate-900">
+                                        {reportMode === 'weekly' && '週間学習レポート'}
+                                        {reportMode === 'summary' && '学習全体分析レポート'}
+                                        {reportMode === 'scope' && '試験範囲・学習計画表'}
+                                    </h1>
+                                    <p className="text-slate-600 mt-1">試験期間: {userInfo.examStartDate ? new Date(userInfo.examStartDate).toLocaleDateString() : '未設定'} 〜 {userInfo.examEndDate ? new Date(userInfo.examEndDate).toLocaleDateString() : '未設定'}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-lg font-bold">{userInfo.class} {userInfo.number} {userInfo.name}</p>
+                                    <p className="text-sm text-slate-500 mb-1">{userInfo.examName}</p>
+                                </div>
+                            </div>
+                            {(reportMode === 'weekly' || reportMode === 'summary') && renderScoreSummary()}
+                            {reportMode === 'weekly' && (
+                                <>
+                                    <div className="space-y-6">
+                                        {dates.map(date => {
+                                            const dayLogs = getLogsForDate(date);
+                                            const dayReflection = getReflectionForDate(date);
+                                            const dayTotal = getTotalTime(date);
+                                            const dateObj = new Date(date);
+                                            const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][dateObj.getDay()];
+                                            return (
+                                                <div key={date} className="border border-slate-300 rounded-lg overflow-hidden break-inside-avoid">
+                                                    <div className="bg-slate-100 p-2 border-b border-slate-300 flex justify-between items-center"><span className="font-bold text-slate-800">{dateObj.getMonth() + 1}/{dateObj.getDate()} ({dayOfWeek})</span><span className="text-sm font-bold bg-white px-2 py-0.5 rounded border border-slate-300">合計: {formatTime(dayTotal)}</span></div>
+                                                    <div className="flex">
+                                                        <div className="flex-1 p-2 border-r border-slate-300">{dayLogs.length > 0 ? <ul className="text-sm space-y-1">{dayLogs.map((log, i) => { const sub = SUBJECTS.find(s => s.id === log.subjectId); return (<li key={i} className="flex gap-2"><span className="font-bold min-w-[3em] text-slate-600">[{sub?.name}]</span><span className="flex-1">{log.content}</span><span className="text-slate-500 text-xs mt-0.5">{log.minutes}分</span></li>); })}</ul> : <span className="text-xs text-slate-400">記録なし</span>}</div>
+                                                        <div className="w-1/3 p-2 bg-slate-50 text-xs space-y-1">{dayReflection ? <><div className="flex justify-between items-start"><div className="space-y-0.5"><span className="block text-[10px] text-slate-500">頑張り: {dayReflection.effort}</span><span className="block text-[10px] text-slate-500">自信: {dayReflection.confidence}</span><span className="block text-[10px] text-slate-500">やる気: {dayReflection.motivation}</span></div><span className="font-bold text-lg text-sky-600">{dayReflection.score}<span className="text-xs text-slate-400">点</span></span></div><div className="border-t border-slate-200 my-1"></div><p className="text-slate-700 italic">"{dayReflection.comment}"</p></> : <div className="h-full flex items-center justify-center"><span className="text-slate-300 text-[10px]">振り返り未記入</span></div>}</div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="mt-8 border-t-2 border-slate-800 pt-4"><h3 className="font-bold text-slate-800 mb-2">先生からのコメント</h3><div className="h-32 w-full border border-slate-300 rounded-lg bg-slate-50"></div><div className="text-right mt-2"><p className="text-sm text-slate-500">出力日: {new Date().toLocaleDateString()} | 定期試験スケジュール管理アプリ</p></div></div>
+                                </>
+                            )}
+                            {reportMode === 'summary' && (
+                                <>
+                                    <div className="grid grid-cols-3 gap-4 mb-8">
+                                        <div className="border border-slate-300 rounded-lg p-4 bg-slate-50"><h3 className="text-xs font-bold text-slate-500 uppercase">これまでの総勉強時間</h3><p className="text-2xl font-bold text-slate-900 mt-1">{formatTime(totalTimeAll)}</p></div>
+                                        <div className="border border-slate-300 rounded-lg p-4 bg-slate-50"><h3 className="text-xs font-bold text-slate-500 uppercase">記録日数</h3><p className="text-2xl font-bold text-slate-900 mt-1">{uniqueDatesWithLogs}<span className="text-sm font-normal ml-1">日</span></p></div>
+                                        <div className="border border-slate-300 rounded-lg p-4 bg-slate-50"><h3 className="text-xs font-bold text-slate-500 uppercase">1日平均勉強時間</h3><p className="text-2xl font-bold text-slate-900 mt-1">{formatTime(dailyAverage)}</p></div>
+                                    </div>
+                                    <h3 className="text-lg font-bold text-slate-800 mb-4 border-l-4 border-sky-500 pl-3">教科別学習バランス・内容</h3>
+                                    <div className="border border-slate-300 rounded-lg overflow-hidden">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-slate-100 border-b border-slate-300"><tr><th className="p-3 text-left font-bold text-slate-700 w-24">教科</th><th className="p-3 text-left font-bold text-slate-700 w-24">合計時間</th><th className="p-3 text-left font-bold text-slate-700 w-32">バランス</th><th className="p-3 text-left font-bold text-slate-700">これまでの主な学習内容</th></tr></thead>
+                                            <tbody className="divide-y divide-slate-200">
+                                                {SUBJECTS.map(sub => {
+                                                    const subTotal = getTotalTime(null, sub.id);
+                                                    const percent = totalTimeAll > 0 ? (subTotal / totalTimeAll) * 100 : 0;
+                                                    const subLogs = logs.filter(l => l.subjectId === sub.id);
+                                                    const uniqueContents = [...new Set(subLogs.map(l => l.content))];
+                                                    const contentPreview = uniqueContents.join(' / ');
+                                                    return (
+                                                        <tr key={sub.id} className="bg-white">
+                                                            <td className="p-3"><span className={`inline-block px-2 py-1 rounded text-xs font-bold ${sub.color.replace('bg-', 'bg-opacity-20 ')}`}>{sub.name}</span></td>
+                                                            <td className="p-3 font-bold text-slate-800">{formatTime(subTotal)}</td>
+                                                            <td className="p-3 align-middle"><div className="flex items-center gap-2"><div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full ${sub.color.replace('text-', 'bg-').split(' ')[0]}`} style={{ width: `${percent}%` }}></div></div><span className="text-xs text-slate-400 w-8 text-right">{percent.toFixed(0)}%</span></div></td>
+                                                            <td className="p-3 text-xs text-slate-600">{contentPreview || <span className="text-slate-300">-</span>}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="mt-8"><h3 className="font-bold text-slate-800 mb-2">総評・フィードバック</h3><div className="h-48 w-full border border-slate-300 rounded-lg bg-slate-50 p-4 text-sm text-slate-400">（先生記入欄）</div></div>
+                                </>
+                            )}
+                            {reportMode === 'scope' && (
+                                <div className="space-y-4">
+                                    {userInfo.examGoal && <div className="bg-orange-50 border border-orange-200 p-4 rounded-lg text-center mb-6"><h2 className="text-sm text-orange-600 font-bold uppercase mb-1">今回の目標（スローガン）</h2><p className="text-2xl font-bold text-orange-900">"{userInfo.examGoal}"</p></div>}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {SUBJECTS.map(sub => (
+                                            <div key={sub.id} className="border border-slate-300 rounded-lg overflow-hidden break-inside-avoid bg-white flex flex-col">
+                                                <div className="bg-slate-50 p-3 border-b border-slate-300 flex justify-between items-center">
+                                                    <span className={`px-2 py-1 rounded text-sm font-bold ${sub.color.replace('bg-', 'bg-opacity-20 ')}`}>{sub.name}</span>
+                                                    <div className="flex items-end gap-2"><div className="text-right"><span className="block text-[10px] text-slate-500 leading-none">目標</span><span className="text-xl font-bold text-slate-800 leading-none">{subjectData[sub.id]?.targetScore || '-'}</span></div><div className="text-right pb-0.5"><span className="text-xs text-slate-400 font-medium">({subjectData[sub.id]?.prevScore || '-'})</span></div></div>
+                                                </div>
+                                                <div className="p-3 flex-1 flex flex-col gap-4">
+                                                    {subjectData[sub.id]?.specificGoal && <div className="bg-yellow-50 border border-yellow-200 rounded p-2 text-sm"><h4 className="text-[10px] font-bold text-yellow-700 flex items-center gap-1 mb-1"><Lightbulb className="w-3 h-3" /> 今回の具体策</h4><p className="text-slate-800">{subjectData[sub.id].specificGoal}</p></div>}
+                                                    <div><h4 className="text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><FileText className="w-3 h-3" /> 試験範囲</h4><div className="text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-200 min-h-[3rem] whitespace-pre-wrap">{subjectData[sub.id]?.range || '未設定'}</div></div>
+                                                    <div className="flex-1"><h4 className="text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><CheckSquare className="w-3 h-3" /> やることリスト</h4><div className="text-sm space-y-1">{subjectData[sub.id]?.todos?.length > 0 ? subjectData[sub.id].todos.map(todo => <div key={todo.id} className="flex items-start gap-2">{todo.completed ? <CheckCircle className="w-4 h-4 text-green-500 shrink-0 mt-0.5" /> : <div className="w-4 h-4 border border-slate-300 rounded shrink-0 mt-0.5" />}<span className={todo.completed ? 'text-slate-400 line-through' : 'text-slate-700'}>{todo.text}</span></div>) : <span className="text-slate-400 text-xs pl-1">登録なし</span>}</div></div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-8 border-t-2 border-slate-800 pt-4 break-inside-avoid"><h3 className="font-bold text-slate-800 mb-2">先生からのコメント</h3><div className="h-32 w-full border border-slate-300 rounded-lg bg-slate-50"></div></div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20 md:pb-0 print:bg-white print:pb-0">
+                    <div className="print:hidden">{renderHeader()}</div>
+                    <main className="p-4 md:p-6">
+                        {activeTab === 'dashboard' && renderDashboard()}
+                        {activeTab === 'record' && renderDailyLog()}
+                        {activeTab === 'subjects' && renderSubjectSetup()}
+                        {activeTab === 'report' && renderReport()}
+                        {activeTab === 'settings' && renderSettings()}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
