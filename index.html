@@ -123,7 +123,7 @@
             const [userInfo, setUserInfo] = useState({
                 class: '', number: '', name: '', examName: '',
                 examStartDate: '', examEndDate: '', examGoal: '',
-                examOverallReflection: '' 
+                examOverallReflection: '' // 試験全体の振り返り
             });
 
             // Subject Data
@@ -132,7 +132,8 @@
             const [logs, setLogs] = useState([]);
             // Reflections
             const [reflections, setReflections] = useState([]);
-            // Saved Data List
+
+            // Saved Data List (Slots)
             const [savedList, setSavedList] = useState([]);
 
             // Temporary State
@@ -151,12 +152,14 @@
                     const parsed = JSON.parse(savedData);
                     setUserInfo({
                         ...parsed.userInfo,
+                        // Ensure examOverallReflection exists for migration
                         examOverallReflection: parsed.userInfo?.examOverallReflection || ''
                     });
                     setSubjectData(parsed.subjectData || {});
                     setLogs(parsed.logs || []);
                     setReflections(parsed.reflections || []);
                 } else {
+                    // Initialize
                     const initialSubjectData = {};
                     SUBJECTS.forEach(sub => {
                         initialSubjectData[sub.id] = {
@@ -167,6 +170,7 @@
                     setSubjectData(initialSubjectData);
                 }
 
+                // Load Saved List
                 const savedListData = localStorage.getItem('studyMateSavedList');
                 if (savedListData) {
                     setSavedList(JSON.parse(savedListData));
@@ -352,6 +356,21 @@
                 if (h > 0) return `${h}時間${m}分`;
                 return `${m}分`;
             };
+            const getDaysUntilExam = () => {
+                if (!userInfo.examStartDate) return null;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const exam = new Date(userInfo.examStartDate);
+                exam.setHours(0, 0, 0, 0);
+                const diffTime = exam - today;
+                return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            };
+
+            const changeDate = (offset) => {
+                const d = new Date(selectedDate);
+                d.setDate(d.getDate() + offset);
+                setSelectedDate(d.toISOString().split('T')[0]);
+            };
             
             // --- Renderers ---
             const renderHeader = () => (
@@ -420,12 +439,33 @@
                             <div className="md:col-span-2">
                                 <label className="block text-sm font-medium text-slate-600 mb-1">試験名</label>
                                 <div className="flex flex-col gap-2">
-                                    <select className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none bg-white" value={EXAM_NAME_OPTIONS.includes(userInfo.examName) ? userInfo.examName : 'custom'} onChange={(e) => { const val = e.target.value; handleUserInfoChange('examName', val === 'custom' ? '' : val); }}>
+                                    <select 
+                                        className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none bg-white"
+                                        value={EXAM_NAME_OPTIONS.includes(userInfo.examName) ? userInfo.examName : 'custom'}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === 'custom') {
+                                                handleUserInfoChange('examName', '');
+                                            } else {
+                                                handleUserInfoChange('examName', val);
+                                            }
+                                        }}
+                                    >
                                         <option value="" disabled>選択してください</option>
-                                        {EXAM_NAME_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        {EXAM_NAME_OPTIONS.map(opt => (
+                                            <option key={opt} value={opt}>{opt}</option>
+                                        ))}
                                         <option value="custom">自分で入力</option>
                                     </select>
-                                    {(!EXAM_NAME_OPTIONS.includes(userInfo.examName)) && <input type="text" value={userInfo.examName} onChange={(e) => handleUserInfoChange('examName', e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none animate-fadeIn" placeholder="試験名を入力してください" />}
+                                    {(!EXAM_NAME_OPTIONS.includes(userInfo.examName)) && (
+                                        <input 
+                                            type="text" 
+                                            value={userInfo.examName} 
+                                            onChange={(e) => handleUserInfoChange('examName', e.target.value)} 
+                                            className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none animate-fadeIn" 
+                                            placeholder="試験名を入力してください" 
+                                        />
+                                    )}
                                 </div>
                             </div>
                             <div className="md:col-span-1">
@@ -542,9 +582,13 @@
                 const isEditing = tempLog.id !== null;
                 return (
                     <div className="max-w-5xl mx-auto flex flex-col gap-6">
-                        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
                             <h2 className="font-bold text-slate-700 flex items-center gap-2"><Calendar className="w-5 h-5 text-sky-500" /> 日付選択</h2>
-                            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="p-2 border border-slate-300 rounded-lg font-bold text-slate-700" />
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => changeDate(-1)} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronLeft className="w-5 h-5" /></button>
+                                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="p-2 border border-slate-300 rounded-lg font-bold text-slate-700" />
+                                <button onClick={() => changeDate(1)} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200 text-slate-600"><ChevronRight className="w-5 h-5" /></button>
+                            </div>
                         </div>
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                             <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">1. 教科を選ぶ</h3>
@@ -765,6 +809,7 @@
                 // Totals for result report
                 const total5 = SUBJECTS.filter(s => s.type === 'main5').reduce((acc, s) => acc + (parseInt(subjectData[s.id]?.examScore) || 0), 0);
                 const total9 = SUBJECTS.reduce((acc, s) => acc + (parseInt(subjectData[s.id]?.examScore) || 0), 0);
+
 
                 const renderScoreSummary = () => (
                     <div className="mb-6 bg-white border border-slate-300 rounded-lg overflow-hidden break-inside-avoid">
