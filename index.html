@@ -885,7 +885,6 @@
                 const totalHoursAll = (totalMinutesAll / 60).toFixed(1);
                 const avgMinutesPerSubject = SUBJECTS.length > 0 ? Math.floor(totalMinutesAll / SUBJECTS.length) : 0;
                 
-                // Countdown / Status Logic
                 let statusCard = null;
                 if (userInfo.examStartDate) {
                     const today = new Date();
@@ -894,10 +893,8 @@
                     start.setHours(0, 0, 0, 0);
                     const end = userInfo.examEndDate ? new Date(userInfo.examEndDate) : new Date(start);
                     end.setHours(0, 0, 0, 0);
-
                     let label = "試験開始まで";
                     let content = "";
-
                     if (today < start) {
                         const diff = Math.ceil((start - today) / (1000 * 60 * 60 * 24));
                         content = `あと ${diff} 日`;
@@ -908,13 +905,7 @@
                         label = "お疲れ様でした";
                         content = "試験終了";
                     }
-
-                    statusCard = (
-                        <div className="text-center bg-white text-slate-900 p-4 rounded-xl shadow-lg border-b-4 border-orange-500 transform hover:scale-105 transition-transform">
-                            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">{label}</p>
-                            <p className="text-4xl font-extrabold text-orange-600 font-mono">{content}</p>
-                        </div>
-                    );
+                    statusCard = (<div className="text-center bg-white text-slate-900 p-4 rounded-xl shadow-lg border-b-4 border-orange-500 transform hover:scale-105 transition-transform"><p className="text-xs text-slate-500 font-bold uppercase tracking-wider">{label}</p><p className="text-4xl font-extrabold text-orange-600 font-mono">{content}</p></div>);
                 }
 
                 return (
